@@ -79,7 +79,7 @@
       const tab = cleanTab(textOf(spans[0]));
       const speaker = textOf(spans[1]);
       const bodyText = textOf(spans[2]);
-      if (!tab || !bodyText || isStatusChange(speaker, bodyText)) return;
+      if (!tab || !bodyText || bodyText === 'てすと' || isStatusChange(speaker, bodyText)) return;
       const color = parseColor(p.getAttribute('style') || '');
       rows.push({tab,speaker,bodyText,bodyHtml:spans[2].innerHTML.trim(),color,dice:isDice(bodyText)});
     });
@@ -99,29 +99,64 @@
         const group=[m]; let j=i+1;
         while (j<messages.length && messages[j].tab==='other' && messages[j].speaker===m.speaker) { group.push(messages[j]); j++; }
         const bg=`rgba(${m.color.rgb[0]}, ${m.color.rgb[1]}, ${m.color.rgb[2]}, 0.11)`;
-        const anyDice=group.some(x=>x.dice);
         const allDice=group.every(x=>x.dice);
         const body=group.length===1
-          ? utterance(m,false,`" style="--other-speaker-bg:${bg}`)
+          ? `<div class="other-speaker-group" style="--other-speaker-bg:${bg}">${utterance(m)}</div>`
           : `<div class="other-speaker-group" style="--other-speaker-bg:${bg}">${group.map((x,k)=>utterance(x,k>0)).join('')}</div>`;
-        out.push(`<tr${allDice?' class="log-dice-row"':''} data-tab="${esc(m.tab)}"><td class="log-tab-cell log-tab-cell-other">${body}</td></tr>`);
+        out.push(`<div class="log-row log-row-special log-row-other${allDice?' log-dice-row':''}" data-tab="${esc(m.tab)}">${body}</div>`);
         i=j; continue;
       }
-      if (m.tab === 'info') {
+      if (m.tab === 'info' || m.tab === '真相') {
         const group=[m]; let j=i+1;
-        while (j<messages.length && messages[j].tab==='info') { group.push(messages[j]); j++; }
+        while (j<messages.length && messages[j].tab===m.tab) { group.push(messages[j]); j++; }
         const allDice=group.every(x=>x.dice);
-        out.push(`<tr${allDice?' class="log-dice-row"':''} data-tab="info"><td class="log-tab-cell"><div class="log-utterance-tab-highlight log-utterance-tab-highlight-group log-utterance-tab-gray log-utterance-tab-gray-group">${group.map(x=>utterance(x)).join('')}</div></td></tr>`);
+        out.push(`<div class="log-row log-row-special log-row-info${allDice?' log-dice-row':''}" data-tab="${esc(m.tab)}"><div class="info-speaker-group">${group.map(x=>utterance(x)).join('')}</div></div>`);
         i=j; continue;
       }
-      out.push(`<tr${m.dice?' class="log-dice-row"':''} data-tab="${esc(m.tab)}"><td class="log-tab-cell">${utterance(m)}</td></tr>`);
+      out.push(`<div class="log-row${m.dice?' log-dice-row':''}" data-tab="${esc(m.tab)}">${utterance(m)}</div>`);
       i++;
     }
     return out.join('');
   }
 
   function outputCss() { return `
-*{box-sizing:border-box}body{margin:0;padding:24px;font-family:"Noto Sans JP",sans-serif;font-size:14px;color:#4d4f46}.log-top-controls{max-width:1000px;margin:0 auto 12px;display:flex;justify-content:flex-end;align-items:center}.log-formatter-output{width:100%;max-width:1000px;margin:0 auto;overflow-x:auto}.log-formatter-table{width:100%;border-collapse:separate;border-spacing:0;table-layout:auto;border:none}.log-formatter-table th,.log-formatter-table td{border-left:none;border-right:none;vertical-align:top}.log-formatter-table thead th{background:#e5e7e0;padding:.5rem .6rem;border:1px solid #bfc1b7;border-radius:4px}.log-tab-title{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.log-tab-chip{display:inline-block;margin:2px 3px;padding:1px 12px;border:1px solid #d7d9d3;border-radius:999px;background:#fff;font-size:12px;font-weight:600;letter-spacing:.04em;line-height:1.7}.log-filter-chip{appearance:none;color:#666960;font:inherit;cursor:pointer;transition:.15s}.log-filter-chip.is-active{background:#e9ebe5;border-color:#bfc3b9;color:#33362f}.log-filter-chip:not(.is-active){background:#fff;color:#74776d}.log-filter-chip:focus-visible{outline:2px solid #9da097;outline-offset:2px}.log-tab-cell{width:100%;min-width:0;background:#fff;padding:.68rem .7rem;border-bottom:1px solid #e5e5e5}.log-formatter-table tbody tr:last-child td{border-bottom:none}.log-utterance{display:grid;grid-template-columns:15em minmax(0,1fr);align-items:start;line-height:1.75;color:#4d4f46}.log-utterance-speaker-box{font-weight:700;padding:2px 12px 2px 0;font-size:11px;line-height:1.65;white-space:normal}.log-utterance-body{grid-column:2;min-width:0;padding-left:12px;border-left:1px solid #dedfd9;word-break:break-word;color:#4d4f46}.log-utterance-body br{display:block;content:"";margin-top:.35em}.log-utterance-skip-speaker .log-utterance-body{grid-column:2}.log-dice-success .log-utterance-body{color:#7898bd}.log-dice-failure .log-utterance-body{color:#d78383}.log-formatter-table tbody tr[data-tab="info"] .log-tab-cell,.log-formatter-table tbody tr[data-tab="other"] .log-tab-cell{padding:.68rem .7rem;border-bottom:none;background:transparent}.log-utterance-tab-highlight-group.log-utterance-tab-gray-group{border:1px solid #6c6e63;border-radius:4px;background:#f7f8f5;padding:0;overflow:hidden}.log-utterance-tab-highlight-group.log-utterance-tab-gray-group>.log-utterance{padding:.68rem .7rem;grid-template-columns:calc(15em - .7rem - 1px) minmax(0,1fr);border-bottom:1px solid #d9dbd4}.log-utterance-tab-highlight-group.log-utterance-tab-gray-group>.log-utterance:last-child{border-bottom:none}.log-tab-cell-other{padding:.68rem .7rem}.log-tab-cell-other>.log-utterance,.log-tab-cell-other>.other-speaker-group{border:1px solid #d8d8d8;border-radius:8px;background:var(--other-speaker-bg,#fafafa);overflow:hidden}.log-tab-cell-other>.log-utterance{padding:.68rem .7rem;grid-template-columns:calc(15em - .7rem - 1px) minmax(0,1fr)}.other-speaker-group>.log-utterance{padding:.68rem .7rem;grid-template-columns:calc(15em - .7rem - 1px) minmax(0,1fr);background:transparent}.dice-toggle{display:inline-flex;align-items:center;gap:9px;font-size:12px;font-weight:600;color:#666960;cursor:pointer;user-select:none}.dice-toggle input{position:absolute;opacity:0;width:1px;height:1px}.dice-toggle-slider{position:relative;width:38px;height:20px;border-radius:999px;background:#cfd1cb;transition:.15s}.dice-toggle-slider:after{content:"";position:absolute;width:16px;height:16px;top:2px;left:2px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:.15s}.dice-toggle input:checked+.dice-toggle-slider{background:#74776d}.dice-toggle input:checked+.dice-toggle-slider:after{transform:translateX(18px)}body.hide-dice .log-dice-row,body.hide-dice .log-dice-entry{display:none!important}.tab-filter-hidden{display:none!important}@media(max-width:700px){body{padding:12px}.log-utterance{grid-template-columns:11em minmax(0,1fr)}.log-utterance-tab-highlight-group.log-utterance-tab-gray-group>.log-utterance,.log-tab-cell-other>.log-utterance,.other-speaker-group>.log-utterance{grid-template-columns:calc(11em - .7rem - 1px) minmax(0,1fr)}}` }
+*{box-sizing:border-box}
+:root{--speaker-width:210px}
+body{margin:0;padding:24px;font-family:"Noto Sans JP",sans-serif;font-size:14px;color:#4d4f46;background:#fff}
+.log-top-controls{max-width:1000px;margin:0 auto 12px;display:flex;justify-content:flex-end;align-items:center}
+.log-formatter-output{width:100%;max-width:1000px;margin:0 auto}
+.log-tab-title{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#e5e7e0;padding:.5rem .6rem;border:1px solid #bfc1b7;border-radius:4px;margin-bottom:.7rem}
+.log-tab-chip{display:inline-block;margin:2px 3px;padding:1px 12px;border:1px solid #d7d9d3;border-radius:999px;background:#fff;font-size:12px;font-weight:600;letter-spacing:.04em;line-height:1.7}
+.log-filter-chip{appearance:none;color:#666960;font:inherit;cursor:pointer;transition:.15s}
+.log-filter-chip.is-active{background:#e9ebe5;border-color:#bfc3b9;color:#33362f}
+.log-filter-chip:not(.is-active){background:#fff;color:#74776d}
+.log-filter-chip:focus-visible{outline:2px solid #9da097;outline-offset:2px}
+.log-list{width:100%}
+.log-row{padding:.68rem .7rem;border-bottom:1px solid #e5e5e5;background:#fff}
+.log-row-special{padding:0;border-bottom:none;background:transparent;margin:.7rem 0}
+.log-utterance{display:grid;grid-template-columns:var(--speaker-width) minmax(0,1fr);align-items:start;line-height:1.75;color:#4d4f46}
+.log-utterance-speaker-box{font-weight:700;padding:2px 12px 2px 0;font-size:11px;line-height:1.65;white-space:normal;word-break:break-word}
+.log-utterance-body{grid-column:2;min-width:0;padding-left:12px;border-left:1px solid #dedfd9;word-break:break-word;color:#4d4f46}
+.log-utterance-body br{display:block;content:"";margin-top:.35em}
+.log-utterance-skip-speaker .log-utterance-body{grid-column:2}
+.log-dice-success .log-utterance-body{color:#7898bd}
+.log-dice-failure .log-utterance-body{color:#d78383}
+.info-speaker-group{border:1px solid #6c6e63;border-radius:0;background:#f7f8f5;overflow:hidden}
+.info-speaker-group>.log-utterance{padding:.68rem .7rem;border-bottom:1px solid #d9dbd4;grid-template-columns:calc(var(--speaker-width) - .7rem - 1px) minmax(0,1fr)}
+.info-speaker-group>.log-utterance:last-child{border-bottom:none}
+.other-speaker-group{border:1px solid #d8d8d8;border-radius:8px;background:var(--other-speaker-bg,#fafafa);overflow:hidden}
+.other-speaker-group>.log-utterance{padding:.68rem .7rem;grid-template-columns:calc(var(--speaker-width) - .7rem - 1px) minmax(0,1fr);background:transparent}
+.other-speaker-group>.log-utterance+.log-utterance{border-top:none}
+.dice-toggle{display:inline-flex;align-items:center;gap:9px;font-size:12px;font-weight:600;color:#666960;cursor:pointer;user-select:none}
+.dice-toggle input{position:absolute;opacity:0;width:1px;height:1px}
+.dice-toggle-slider{position:relative;width:38px;height:20px;border-radius:999px;background:#cfd1cb;transition:.15s}
+.dice-toggle-slider:after{content:"";position:absolute;width:16px;height:16px;top:2px;left:2px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:.15s}
+.dice-toggle input:checked+.dice-toggle-slider{background:#74776d}
+.dice-toggle input:checked+.dice-toggle-slider:after{transform:translateX(18px)}
+body.hide-dice .log-dice-row,body.hide-dice .log-dice-entry{display:none!important}
+.tab-filter-hidden{display:none!important}
+@media(max-width:700px){body{padding:12px}:root{--speaker-width:154px}}` }
+
 
   function buildOutput(source, inputName) {
     const messages = readMessages(source);
@@ -131,7 +166,7 @@
     const tabs=[...preferred.filter(t=>detected.includes(t)),...detected.filter(t=>!preferred.includes(t))];
     const chips=tabs.map(t=>`<button type="button" class="log-tab-chip log-filter-chip" data-filter="${esc(t)}" aria-pressed="false">${esc(t)}</button>`).join('');
     const title=(inputName||'log').replace(/\.html?$/i,'')+' 整形';
-    return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet"><style>${outputCss()}</style></head><body><div class="log-top-controls"><label class="dice-toggle"><span>ダイス結果を表示</span><input id="diceToggle" type="checkbox" checked><span class="dice-toggle-slider" aria-hidden="true"></span></label></div><div class="log-formatter-output"><table class="log-formatter-table"><thead><tr><th class="log-tab-title">${chips}</th></tr></thead><tbody>${makeRows(messages)}</tbody></table></div><script>(()=>{const d=document.getElementById('diceToggle'),bs=[...document.querySelectorAll('.log-filter-chip')],rs=[...document.querySelectorAll('tbody tr[data-tab]')];let a=null;function f(){rs.forEach(r=>r.classList.toggle('tab-filter-hidden',a!==null&&r.dataset.tab!==a));bs.forEach(b=>{const x=a!==null&&b.dataset.filter===a;b.classList.toggle('is-active',x);b.setAttribute('aria-pressed',String(x))})}bs.forEach(b=>b.addEventListener('click',()=>{a=a===b.dataset.filter?null:b.dataset.filter;f()}));d.addEventListener('change',()=>document.body.classList.toggle('hide-dice',!d.checked));f()})();<\/script></body></html>`;
+    return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet"><style>${outputCss()}</style></head><body><div class="log-top-controls"><label class="dice-toggle"><span>ダイス結果を表示</span><input id="diceToggle" type="checkbox" checked><span class="dice-toggle-slider" aria-hidden="true"></span></label></div><div class="log-formatter-output"><div class="log-tab-title">${chips}</div><div class="log-list">${makeRows(messages)}</div></div><script>(()=>{const d=document.getElementById('diceToggle'),bs=[...document.querySelectorAll('.log-filter-chip')],rs=[...document.querySelectorAll('.log-row[data-tab]')];let a=null;function f(){rs.forEach(r=>r.classList.toggle('tab-filter-hidden',a!==null&&r.dataset.tab!==a));bs.forEach(b=>{const x=a!==null&&b.dataset.filter===a;b.classList.toggle('is-active',x);b.setAttribute('aria-pressed',String(x))})}bs.forEach(b=>b.addEventListener('click',()=>{a=a===b.dataset.filter?null:b.dataset.filter;f()}));d.addEventListener('change',()=>document.body.classList.toggle('hide-dice',!d.checked));f()})();<\/script></body></html>`;
   }
 
   fileInput.addEventListener('change', async () => {
