@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>TRPGログ整形ツール</title>
+<style>
+:root{color-scheme:light;--ink:#3f413b;--muted:#74776d;--line:#d9dbd4;--soft:#f5f6f3;--accent:#5f6659}
+*{box-sizing:border-box}body{margin:0;background:#f7f8f5;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif}
+.app{max-width:1180px;margin:0 auto;padding:28px 18px 42px}.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}.head h1{font-size:22px;margin:0 0 5px}.head p{margin:0;color:var(--muted);font-size:13px}.privacy{font-size:12px;color:var(--muted)}
+.panel{background:#fff;border:1px solid #dfe1db;border-radius:12px;padding:16px}.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.btn,.file-label{appearance:none;border:1px solid #cdd0c8;background:#fff;color:#40433d;border-radius:8px;padding:10px 14px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}.btn.primary,.file-label.primary{background:#62685c;color:white;border-color:#62685c}.btn:disabled{opacity:.45;cursor:not-allowed}.file-label input{display:none}.filename{font-size:13px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.status{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--soft);font-size:13px;color:#60635b}.status.error{background:#fff1f1;color:#9a4b4b}.preview-wrap{margin-top:18px}.preview-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}.preview-head h2{font-size:15px;margin:0}.preview-note{font-size:12px;color:var(--muted)}iframe{width:100%;height:680px;border:1px solid #d8dad4;border-radius:10px;background:#fff;display:block}@media(max-width:650px){.app{padding:18px 10px 28px}.panel{padding:12px}iframe{height:600px}}
+</style>
+</head>
+<body>
+<main class="app">
+  <div class="head">
+    <div><h1>TRPGログ整形ツール</h1><p>ココフォリアのHTMLログを読み込み、整形済みHTMLを書き出します。</p></div>
+    <div class="privacy">ログはサーバーへ送信せず、このブラウザ内だけで処理します。</div>
+  </div>
+  <section class="panel">
+    <div class="controls">
+      <label class="file-label primary">HTMLを選択<input id="fileInput" type="file" accept=".html,.htm,text/html"></label>
+      <button id="downloadBtn" class="btn" type="button" disabled>整形HTMLを保存</button>
+      <span id="filename" class="filename">ファイル未選択</span>
+    </div>
+    <div id="status" class="status">元のHTMLログを選択してください。</div>
+  </section>
+  <section class="preview-wrap">
+    <div class="preview-head"><h2>プレビュー</h2><span class="preview-note">書き出されるHTMLと同じ表示です</span></div>
+    <iframe id="preview" title="整形後ログのプレビュー"></iframe>
+  </section>
+</main>
+<script>
+(() => {
+  const fileInput = document.getElementById('fileInput');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const filenameEl = document.getElementById('filename');
+  const statusEl = document.getElementById('status');
+  const preview = document.getElementById('preview');
+  let outputHtml = '';
+  let outputName = 'formatted-log.html';
+
+  const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const textOf = el => (el?.textContent || '').replace(/\u00a0/g,' ').trim();
+  const cleanTab = s => s.replace(/^\s*\[/,'').replace(/\]\s*$/,'').trim();
+
+  function parseColor(styleText) {
+    const m = /(?:^|;)\s*color\s*:\s*([^;]+)/i.exec(styleText || '');
+    const c = (m ? m[1] : '#4d4f46').trim();
+    if (/^#[0-9a-f]{6}$/i.test(c)) return {css:c, rgb:[parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)]};
+    if (/^#[0-9a-f]{3}$/i.test(c)) return {css:c, rgb:[parseInt(c[1]+c[1],16),parseInt(c[2]+c[2],16),parseInt(c[3]+c[3],16)]};
+    const r = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(c);
+    if (r) return {css:`rgb(${r[1]}, ${r[2]}, ${r[3]})`, rgb:[+r[1],+r[2],+r[3]]};
+    return {css:'#4d4f46',rgb:[77,79,70]};
+  }
+
+  function isStatusChange(speaker, body) {
+    const t = body.replace(/\s+/g,' ');
+    return speaker.toLowerCase() === 'system' && /\[[^\]]+\].*:\s*[-+]?\d+(?:\.\d+)?\s*[→⇒＞>]\s*[-+]?\d+(?:\.\d+)?/.test(t);
+  }
+  function isDice(body) {
+    const t = body.replace(/\s+/g,' ');
+    if (!/[＞>]/.test(t)) return false;
+    return /(?:\b\d*D\d+\b|\bCCB?\b|\bs?CCB?\s*<=|\bCBRB\b|\bRESB\b|\bchoice\b|\b\d+d\d+\b|1D100|D100)/i.test(t);
+  }
+  function diceClass(body) {
+    if (/失敗/.test(body)) return ' log-dice-failure';
+    if (/成功/.test(body)) return ' log-dice-success';
+    return '';
+  }
+
+  function readMessages(source) {
+    const doc = new DOMParser().parseFromString(source,'text/html');
+    const rows = [];
+    doc.querySelectorAll('body p').forEach(p => {
+      const spans = p.querySelectorAll(':scope > span');
+      if (spans.length < 3) return;
+      const tab = cleanTab(textOf(spans[0]));
+      const speaker = textOf(spans[1]);
+      const bodyText = textOf(spans[2]);
+      if (!tab || !bodyText || isStatusChange(speaker, bodyText)) return;
+      const color = parseColor(p.getAttribute('style') || '');
+      rows.push({tab,speaker,bodyText,bodyHtml:spans[2].innerHTML.trim(),color,dice:isDice(bodyText)});
+    });
+    return rows;
+  }
+
+  function utterance(msg, skipSpeaker=false, extra='') {
+    const classes = `log-utterance${skipSpeaker ? ' log-utterance-skip-speaker' : ''}${msg.dice ? ' log-dice-entry' + diceClass(msg.bodyText) : ''}${extra}`;
+    return `<div class="${classes.trim()}">${skipSpeaker ? '' : `<span class="log-utterance-speaker-box" style="color:${esc(msg.color.css)}">${esc(msg.speaker)}</span>`}<span class="log-utterance-body">${msg.bodyHtml}</span></div>`;
+  }
+
+  function makeRows(messages) {
+    const out=[];
+    for (let i=0;i<messages.length;) {
+      const m=messages[i];
+      if (m.tab === 'other') {
+        const group=[m]; let j=i+1;
+        while (j<messages.length && messages[j].tab==='other' && messages[j].speaker===m.speaker) { group.push(messages[j]); j++; }
+        const bg=`rgba(${m.color.rgb[0]}, ${m.color.rgb[1]}, ${m.color.rgb[2]}, 0.11)`;
+        const anyDice=group.some(x=>x.dice);
+        const allDice=group.every(x=>x.dice);
+        const body=group.length===1
+          ? utterance(m,false,`" style="--other-speaker-bg:${bg}`)
+          : `<div class="other-speaker-group" style="--other-speaker-bg:${bg}">${group.map((x,k)=>utterance(x,k>0)).join('')}</div>`;
+        out.push(`<tr${allDice?' class="log-dice-row"':''} data-tab="${esc(m.tab)}"><td class="log-tab-cell log-tab-cell-other">${body}</td></tr>`);
+        i=j; continue;
+      }
+      if (m.tab === 'info') {
+        const group=[m]; let j=i+1;
+        while (j<messages.length && messages[j].tab==='info') { group.push(messages[j]); j++; }
+        const allDice=group.every(x=>x.dice);
+        out.push(`<tr${allDice?' class="log-dice-row"':''} data-tab="info"><td class="log-tab-cell"><div class="log-utterance-tab-highlight log-utterance-tab-highlight-group log-utterance-tab-gray log-utterance-tab-gray-group">${group.map(x=>utterance(x)).join('')}</div></td></tr>`);
+        i=j; continue;
+      }
+      out.push(`<tr${m.dice?' class="log-dice-row"':''} data-tab="${esc(m.tab)}"><td class="log-tab-cell">${utterance(m)}</td></tr>`);
+      i++;
+    }
+    return out.join('');
+  }
+
+  function outputCss() { return `
+*{box-sizing:border-box}body{margin:0;padding:24px;font-family:"Noto Sans JP",sans-serif;font-size:14px;color:#4d4f46}.log-top-controls{max-width:1000px;margin:0 auto 12px;display:flex;justify-content:flex-end;align-items:center}.log-formatter-output{width:100%;max-width:1000px;margin:0 auto;overflow-x:auto}.log-formatter-table{width:100%;border-collapse:collapse;table-layout:auto;border:2px solid #bfc1b7}.log-formatter-table th,.log-formatter-table td{border-left:none;border-right:none;vertical-align:top}.log-formatter-table thead th{background:#e5e7e0;padding:.5rem .6rem;border-bottom:2px solid #bfc1b7}.log-tab-title{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.log-tab-chip{display:inline-block;margin:2px 3px;padding:1px 12px;border:1px solid #d7d9d3;border-radius:999px;background:#fff;font-size:12px;font-weight:600;letter-spacing:.04em;line-height:1.7}.log-filter-chip{appearance:none;color:#666960;font:inherit;cursor:pointer;transition:.15s}.log-filter-chip.is-active{background:#e9ebe5;border-color:#bfc3b9;color:#33362f}.log-filter-chip:not(.is-active){background:#fff;color:#74776d}.log-filter-chip:focus-visible{outline:2px solid #9da097;outline-offset:2px}.log-tab-cell{width:100%;min-width:0;background:#fff;padding:.68rem .7rem;border-bottom:1px solid #e5e5e5}.log-formatter-table tbody tr:last-child td{border-bottom:none}.log-utterance{display:grid;grid-template-columns:15em minmax(0,1fr);align-items:start;line-height:1.75;color:#4d4f46}.log-utterance-speaker-box{font-weight:700;padding:2px 12px 2px 0;font-size:11px;line-height:1.65;white-space:normal}.log-utterance-body{grid-column:2;min-width:0;padding-left:12px;border-left:1px solid #dedfd9;word-break:break-word;color:#4d4f46}.log-utterance-body br{display:block;content:"";margin-top:.35em}.log-utterance-skip-speaker .log-utterance-body{grid-column:2}.log-dice-success .log-utterance-body{color:#7898bd}.log-dice-failure .log-utterance-body{color:#d78383}.log-utterance-tab-highlight-group.log-utterance-tab-gray-group{border:1px solid #6c6e63;border-radius:2px;background:#f7f8f5;padding:0;overflow:hidden}.log-utterance-tab-highlight-group.log-utterance-tab-gray-group>.log-utterance{padding:11px 10px;border-bottom:1px solid #d9dbd4}.log-utterance-tab-highlight-group.log-utterance-tab-gray-group>.log-utterance:last-child{border-bottom:none}.log-tab-cell-other{padding:.68rem .7rem}.log-tab-cell-other>.log-utterance,.log-tab-cell-other>.other-speaker-group{border:1px solid #d8d8d8;border-radius:8px;background:var(--other-speaker-bg,#fafafa);overflow:hidden}.log-tab-cell-other>.log-utterance{padding:.68rem .7rem;grid-template-columns:calc(15em - .7rem - 1px) minmax(0,1fr)}.other-speaker-group>.log-utterance{padding:.68rem .7rem;grid-template-columns:calc(15em - .7rem - 1px) minmax(0,1fr);background:transparent}.dice-toggle{display:inline-flex;align-items:center;gap:9px;font-size:12px;font-weight:600;color:#666960;cursor:pointer;user-select:none}.dice-toggle input{position:absolute;opacity:0;width:1px;height:1px}.dice-toggle-slider{position:relative;width:38px;height:20px;border-radius:999px;background:#cfd1cb;transition:.15s}.dice-toggle-slider:after{content:"";position:absolute;width:16px;height:16px;top:2px;left:2px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:.15s}.dice-toggle input:checked+.dice-toggle-slider{background:#74776d}.dice-toggle input:checked+.dice-toggle-slider:after{transform:translateX(18px)}body.hide-dice .log-dice-row,body.hide-dice .log-dice-entry{display:none!important}.tab-filter-hidden{display:none!important}@media(max-width:700px){body{padding:12px}.log-utterance{grid-template-columns:11em minmax(0,1fr)}.log-tab-cell-other>.log-utterance,.other-speaker-group>.log-utterance{grid-template-columns:calc(11em - .7rem - 1px) minmax(0,1fr)}}` }
+
+  function buildOutput(source, inputName) {
+    const messages = readMessages(source);
+    if (!messages.length) throw new Error('ココフォリアの発言データを見つけられませんでした。');
+    const detected=[]; messages.forEach(m=>{if(!detected.includes(m.tab))detected.push(m.tab)});
+    const preferred=['main','info','真相','other'];
+    const tabs=[...preferred.filter(t=>detected.includes(t)),...detected.filter(t=>!preferred.includes(t))];
+    const chips=tabs.map(t=>`<button type="button" class="log-tab-chip log-filter-chip" data-filter="${esc(t)}" aria-pressed="false">${esc(t)}</button>`).join('');
+    const title=(inputName||'log').replace(/\.html?$/i,'')+' 整形';
+    return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet"><style>${outputCss()}</style></head><body><div class="log-top-controls"><label class="dice-toggle"><span>ダイス結果を表示</span><input id="diceToggle" type="checkbox" checked><span class="dice-toggle-slider" aria-hidden="true"></span></label></div><div class="log-formatter-output"><table class="log-formatter-table"><thead><tr><th class="log-tab-title">${chips}</th></tr></thead><tbody>${makeRows(messages)}</tbody></table></div><script>(()=>{const d=document.getElementById('diceToggle'),bs=[...document.querySelectorAll('.log-filter-chip')],rs=[...document.querySelectorAll('tbody tr[data-tab]')];let a=null;function f(){rs.forEach(r=>r.classList.toggle('tab-filter-hidden',a!==null&&r.dataset.tab!==a));bs.forEach(b=>{const x=a!==null&&b.dataset.filter===a;b.classList.toggle('is-active',x);b.setAttribute('aria-pressed',String(x))})}bs.forEach(b=>b.addEventListener('click',()=>{a=a===b.dataset.filter?null:b.dataset.filter;f()}));d.addEventListener('change',()=>document.body.classList.toggle('hide-dice',!d.checked));f()})();<\/script></body></html>`;
+  }
+
+  fileInput.addEventListener('change', async () => {
+    const file=fileInput.files && fileInput.files[0];
+    if(!file)return;
+    filenameEl.textContent=file.name;
+    statusEl.className='status'; statusEl.textContent='整形しています…';
+    downloadBtn.disabled=true;
+    try{
+      const source=await file.text();
+      outputHtml=buildOutput(source,file.name);
+      outputName=file.name.replace(/\.html?$/i,'')+'_整形.html';
+      preview.srcdoc=outputHtml;
+      downloadBtn.disabled=false;
+      const count=readMessages(source).length;
+      statusEl.textContent=`整形完了：${count}件の発言を読み込みました。プレビューを確認して保存できます。`;
+    }catch(e){
+      outputHtml=''; preview.srcdoc=''; downloadBtn.disabled=true;
+      statusEl.className='status error'; statusEl.textContent='読み込みに失敗しました：'+(e?.message||'不明なエラー');
+    }
+  });
+  downloadBtn.addEventListener('click',()=>{
+    if(!outputHtml)return;
+    const blob=new Blob([outputHtml],{type:'text/html;charset=utf-8'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=outputName; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  });
+  preview.srcdoc='<!doctype html><html lang="ja"><body style="font-family:sans-serif;color:#888;padding:32px;text-align:center">HTMLを選択すると、ここにプレビューが表示されます。</body></html>';
+})();
+</script>
+</body>
+</html>
